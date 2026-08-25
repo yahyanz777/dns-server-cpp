@@ -19,6 +19,7 @@ public:
     uint16_t ARCOUNT{};
 
     static DnsHeader read(BytePacketBuffer &buffer);
+    void write(BytePacketBuffer& buffer) const;
 
     bool is_response() const;
     bool is_authoritative() const;
@@ -29,7 +30,12 @@ public:
     uint16_t get_ACOUNT() const;
     uint16_t get_NSCOUNT() const;
     uint16_t get_ARCOUNT() const;
-    
+
+    void set_QDCOUNT(uint16_t count) { QDCOUNT = count; }
+    void set_ACOUNT(uint16_t count) { ANCOUNT = count; }
+    void set_NSCOUNT(uint16_t count) { NSCOUNT = count; }
+    void set_ARCOUNT(uint16_t count) { ARCOUNT = count; }
+    void set_recursion_desired(bool value);
 
     void print() const;
 

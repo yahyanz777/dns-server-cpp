@@ -3,17 +3,19 @@
 #include <cstdint>
 #include <variant>
 #include <vector>
+#include "IPv4Address.hpp"
+#include "IPv6Address.hpp"
 
 
 class BytePacketBuffer;
 enum class QuestionType;
 
 struct ARecord {
-    std::string address;
+    IPv4Address address;
 };
 
 struct AAAARecord {
-    std::string address;
+    IPv6Address address;
 };
 
 struct CNAMERecord {
@@ -50,5 +52,7 @@ public:
     static DnsRecord read(BytePacketBuffer& buffer);
     void printData()const;
     void print() const;
+    void write(BytePacketBuffer& buffer) const;
+    void writeData(BytePacketBuffer& buffer) const;
 
 };

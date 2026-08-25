@@ -28,6 +28,17 @@ public:
     [[nodiscard]] std::size_t position() const noexcept;
     [[nodiscard]] std::size_t remaining() const noexcept;
 
+    void write_u8(uint8_t);
+    void write_u16(uint16_t);
+    void write_u32(uint32_t);
+    void write_qname(const std::string &domain);
+
+    std::array<uint8_t, 512>& get_buffer() noexcept;
+    const std::array<uint8_t, 512>& get_buffer() const noexcept;
+    void set_length(std::size_t length);
+    std::size_t get_length() const noexcept { return len; }
+
+
 private:
     std::array<uint8_t, 512> buff{};
     std::size_t pos{};

@@ -1,7 +1,7 @@
 #include <BytePacketBuffer.hpp>
 #include <DnsQuestion.hpp>
 
-DnsQuestion::DnsQuestion(std::string&& n, QuestionType t, uint16_t c)
+DnsQuestion::DnsQuestion(const std::string& n, QuestionType t, uint16_t c)
     : name(std::move(n)), type(t), class_(c) {}
 
 
@@ -28,4 +28,10 @@ DnsQuestion DnsQuestion::read(BytePacketBuffer& buffer) {
 
 void DnsQuestion::print() const {
     std::cout << "Name: " << name << ", Type: " << static_cast<uint16_t>(type) << ", Class: " << class_ << std::endl;
+}
+
+void DnsQuestion::write(BytePacketBuffer& buffer)const {
+    buffer.write_qname(name);
+    buffer.write_u16(static_cast<uint16_t>(type));
+    buffer.write_u16(class_);
 }

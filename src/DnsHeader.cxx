@@ -52,6 +52,14 @@ uint16_t DnsHeader::get_ARCOUNT()const{
     return ARCOUNT;
 }
 
+void DnsHeader::set_recursion_desired(bool value)
+{
+    if (value)
+        FLAGS |= (1 << 8);
+    else
+        FLAGS &= ~(1 << 8);
+}
+
 void DnsHeader::print() const
 {
     std::cout << "ID: " << ID << std::endl;
@@ -64,4 +72,14 @@ void DnsHeader::print() const
     std::cout << "ANCOUNT: " << ANCOUNT << std::endl;
     std::cout << "NSCOUNT: " << NSCOUNT << std::endl;
     std::cout << "ARCOUNT: " << ARCOUNT << std::endl;
+}
+
+void DnsHeader::write(BytePacketBuffer& buffer) const
+{
+    buffer.write_u16(ID);
+    buffer.write_u16(FLAGS);
+    buffer.write_u16(QDCOUNT);
+    buffer.write_u16(ANCOUNT);
+    buffer.write_u16(NSCOUNT);
+    buffer.write_u16(ARCOUNT);
 }

@@ -27,7 +27,7 @@ BytePacketBuffer::BytePacketBuffer(std::initializer_list<uint8_t> bytes)
     pos = 0;
 }
 
-BytePacketBuffer::BytePacketBuffer(const std::vector<uint8_t>& bytes)
+BytePacketBuffer::BytePacketBuffer(const std::vector<uint8_t> &bytes)
 {
     if (bytes.size() > buff.size())
     {
@@ -172,4 +172,85 @@ std::size_t BytePacketBuffer::position() const noexcept
 std::size_t BytePacketBuffer::remaining() const noexcept
 {
     return len - pos;
+}
+
+void BytePacketBuffer::write_u8(uint8_t byte)
+{
+    if (pos >= buff.size())
+    {
+        throw std::length_error("DNS packet exceeds buffer capacity");
+    }
+
+    buff[pos++] = byte;
+    len = std::max(len, pos);
+}
+
+void BytePacketBuffer::write_u16(uint16_t value)
+{
+    write_u8(value >> 8);
+    write_u8(value & 0xFF);
+}
+
+void BytePacketBuffer::write_u32(uint32_t value)
+{
+    write_u16(value >> 16);
+    write_u16(value & 0xFFFF);
+}
+
+void BytePacketBuffer::write_qname(const std::string &domain)
+{
+    if (domain.empty() || domain == ".")
+    {
+        write_u8(0);
+        return;
+    }
+
+    std::size_t label_start = 0;
+    while (label_start < domain.size())
+    {
+        const std::size_t label_end = domain.find('.', label_start);
+        const std::size_t label_length =
+            (label_end == std::string::npos ? domain.size() : label_end) - label_start;
+
+        if (label_length == 0 || label_length > 63)
+        {
+            throw std::invalid_argument("DNS labels must contain 1 to 63 bytes");
+        }
+
+        write_u8(static_cast<uint8_t>(label_length));
+        for (std::size_t i = label_start; i < label_start + label_length; ++i)
+        {
+            write_u8(static_cast<uint8_t>(domain[i]));
+        }
+
+        if (label_end == std::string::npos)
+        {
+            break;
+        }
+
+        label_start = label_end + 1;
+    }
+
+    write_u8(0);
+}
+
+std::array<uint8_t, 512>& BytePacketBuffer::get_buffer() noexcept
+{
+    return buff;
+}
+
+const std::array<uint8_t, 512>& BytePacketBuffer::get_buffer() const noexcept
+{
+    return buff;
+}
+
+void BytePacketBuffer::set_length(std::size_t length)
+{
+    if (length > buff.size())
+    {
+        throw std::length_error("DNS packet exceeds buffer capacity");
+    }
+
+    len = length;
+    pos = 0;
 }

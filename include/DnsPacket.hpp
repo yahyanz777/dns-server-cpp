@@ -24,4 +24,7 @@ public:
 
     static DnsPacket read(BytePacketBuffer& buffer);
     void print() const;
+    void write(BytePacketBuffer& buffer);
+    void add_question(const DnsQuestion& question);
+    DnsHeader& get_header();
 };

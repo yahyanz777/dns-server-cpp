@@ -10,6 +10,18 @@ add_library(dns
     src/DnsQuestion.cxx
     src/DnsRecord.cxx
     src/DnsPacket.cxx
+    src/IPv4Address.cxx
+    src/IPv6Address.cxx
+    src/DnsResolver.cxx
+)
+
+add_executable(dns_main
+    src/main.cxx
+)
+
+target_link_libraries(dns_main
+    PRIVATE
+    dns
 )
 
 target_include_directories(dns PUBLIC
