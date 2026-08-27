@@ -1,11 +1,8 @@
-#include "DnsResolver.hpp"
+#include "DnsServer.hpp"
 
 int main()
 {
-    DnsResolver resolver;
-
-    DnsPacket response =
-        resolver.lookup("google.com.", QuestionType::A);
-
-    response.print();
+    DnsServer server(2053);
+    server.start();
+    return 0;
 }

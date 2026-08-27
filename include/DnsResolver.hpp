@@ -17,6 +17,6 @@ public:
 
     DnsResolver(const DnsResolver&) = delete;
     DnsResolver& operator=(const DnsResolver&) = delete;
-    DnsPacket lookup(const std::string& domain, QuestionType type);
+    DnsPacket lookup(const std::string& domain, QuestionType type = QuestionType::A);
 
 };

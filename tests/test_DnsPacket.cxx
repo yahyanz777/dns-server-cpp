@@ -5,6 +5,7 @@
 
 #include <fstream>
 #include <iterator>
+#include <stdexcept>
 #include <vector>
 
 TEST(DnsPacketTest, ParsesResponsePacketFixture)
@@ -19,4 +20,14 @@ TEST(DnsPacketTest, ParsesResponsePacketFixture)
     BytePacketBuffer buffer{response_bytes};
      EXPECT_NO_THROW({ auto packet = DnsPacket::read(buffer); });
      EXPECT_EQ(buffer.remaining(), 0U);
+}
+
+TEST(DnsPacketTest, RejectsMultipleQuestions)
+{
+    // Header with QDCOUNT = 2. No question bytes are needed because rejection
+    // happens immediately after the header is decoded.
+    BytePacketBuffer buffer{0x12, 0x34, 0x01, 0x00, 0x00, 0x02,
+                            0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+
+    EXPECT_THROW(DnsPacket::read(buffer), std::runtime_error);
 }

@@ -47,7 +47,7 @@ DnsPacket DnsResolver::lookup(const std::string &domain, QuestionType type)
     packet.get_header().ID = query_id;
     packet.get_header().set_recursion_desired(true);
 
-    packet.add_question(DnsQuestion(domain, type));
+    packet.set_question(DnsQuestion(domain, type));
 
     packet.write(sender_buffer);
 

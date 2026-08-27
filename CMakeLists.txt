@@ -10,6 +10,7 @@ add_library(dns
     src/DnsQuestion.cxx
     src/DnsRecord.cxx
     src/DnsPacket.cxx
+    src/DnsServer.cxx
     src/IPv4Address.cxx
     src/IPv6Address.cxx
     src/DnsResolver.cxx
