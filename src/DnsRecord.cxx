@@ -1,7 +1,26 @@
 #include <BytePacketBuffer.hpp>
 #include <DnsRecord.hpp>
 #include <QuestionType.hpp>
+#include <limits>
 #include <stdexcept>
+
+namespace
+{
+uint16_t qname_wire_length(const std::string& name)
+{
+    if (name.empty() || name == ".")
+    {
+        return 1;
+    }
+
+    const std::size_t length = name.size() + (name.back() == '.' ? 1 : 2);
+    if (length > std::numeric_limits<uint16_t>::max())
+    {
+        throw std::length_error("DNS name is too large for an RDATA field");
+    }
+    return static_cast<uint16_t>(length);
+}
+}
 
 DnsRecord::DnsRecord(
     std::string n,
@@ -85,6 +104,19 @@ DnsRecord DnsRecord::read(BytePacketBuffer &buffer)
     }
     break;
 
+    case QuestionType::SOA:
+    {
+        std::string mname = buffer.read_qname();
+        std::string rname = buffer.read_qname();
+        uint32_t serial = buffer.read_u32();
+        uint32_t refresh = buffer.read_u32();
+        uint32_t retry = buffer.read_u32();
+        uint32_t expire = buffer.read_u32();
+        uint32_t minimum = buffer.read_u32();
+        data = SOARecord{mname, rname, serial, refresh, retry, expire, minimum};
+    }
+    break;
+
     default:
         data = UnknownRecord{buffer.read_bytes(rdlength)};
         break;
@@ -129,6 +161,11 @@ void DnsRecord::printData() const
                    {
                        std::cout << "NS Record:" << record.name_server;
                    }
+                   else if constexpr (std::is_same_v<T, SOARecord>)
+                   {
+                       std::cout << "SOA Record: " << record.primary_name_server
+                                 << ", " << record.responsible_authority_mailbox;
+                   }
                    else if constexpr (std::is_same_v<T, UnknownRecord>)
                    {
                        std::cout << "Unknown Record: Data size: " << record.data.size();
@@ -160,40 +197,40 @@ void DnsRecord::writeData(BytePacketBuffer &buffer) const
             }
         }
         else if constexpr (std::is_same_v<T,CNAMERecord>){
-            uint16_t len =record.canonical_name.length(); 
-            if (record.canonical_name[len-1] == '.'){
-               buffer.write_u16(static_cast<uint16_t>(record.canonical_name.length() + 1));
-            }else{
-                buffer.write_u16(static_cast<uint16_t>(record.canonical_name.length() + 2));
-            }
+            buffer.write_u16(qname_wire_length(record.canonical_name));
             buffer.write_qname(record.canonical_name);
         }
         else if constexpr (std::is_same_v<T,MXRecord>){
-            uint16_t len = record.exchange.length();
-            if (record.exchange[len-1] == '.'){
-                buffer.write_u16(2 + static_cast<uint16_t>(record.exchange.length() + 1)); // RDLength for MX is 2 bytes for preference + qname length
-            }else{
-                buffer.write_u16(2 + static_cast<uint16_t>(record.exchange.length() + 2)); // RDLength for MX is 2 bytes for preference + qname length
-            }
+            buffer.write_u16(static_cast<uint16_t>(2 + qname_wire_length(record.exchange)));
             buffer.write_u16(record.preference);
             buffer.write_qname(record.exchange);
         }
         else if constexpr (std::is_same_v<T,NSRecord>){
-            uint16_t len = record.name_server.length();
-            if (record.name_server[len-1] == '.'){
-                buffer.write_u16(static_cast<uint16_t>(record.name_server.length() + 1)); // RDLength for NS is qname length
-            }else{
-                buffer.write_u16(static_cast<uint16_t>(record.name_server.length() + 2)); // RDLength for NS is qname length
-            }
+            buffer.write_u16(qname_wire_length(record.name_server));
             buffer.write_qname(record.name_server);
         }
+        else if constexpr (std::is_same_v<T,SOARecord>){
+            const uint32_t total_length = qname_wire_length(record.primary_name_server) +
+                                          qname_wire_length(record.responsible_authority_mailbox) + 20;
+            if (total_length > std::numeric_limits<uint16_t>::max())
+            {
+                throw std::length_error("SOA RDATA is too large");
+            }
+            buffer.write_u16(total_length);
+            buffer.write_qname(record.primary_name_server);
+            buffer.write_qname(record.responsible_authority_mailbox);
+            buffer.write_u32(record.serial_number);
+            buffer.write_u32(record.refresh_interval);
+            buffer.write_u32(record.retry_interval);
+            buffer.write_u32(record.expire_limit);
+            buffer.write_u32(record.minimum_ttl);
+        }
         else if constexpr (std::is_same_v<T,UnknownRecord>){
-            buffer.write_u16(record.data.size());
+            buffer.write_u16(static_cast<uint16_t>(record.data.size()));
             for (uint8_t byte : record.data){
                 buffer.write_u8(byte);
             }
         }
-        
     },data);
 }
 

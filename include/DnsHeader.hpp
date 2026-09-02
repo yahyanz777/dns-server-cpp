@@ -36,6 +36,9 @@ public:
     void set_NSCOUNT(uint16_t count) { NSCOUNT = count; }
     void set_ARCOUNT(uint16_t count) { ARCOUNT = count; }
     void set_recursion_desired(bool value);
+    void set_response(bool value);
+    void set_recursion_available(bool value);
+    void set_result_code(ResultCode rcode);
 
     void print() const;
 

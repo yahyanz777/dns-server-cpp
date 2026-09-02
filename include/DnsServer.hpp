@@ -1,10 +1,13 @@
 #include "DnsResolver.hpp"
 
-class DnsServer{
+#include <array>
+#include <cstdint>
 
-int server_socket;
-short port;
-DnsResolver resolver{}; 
+class DnsServer {
+    std::array<int, 2> server_sockets{-1, -1};
+    uint16_t port{53};
+    DnsResolver resolver{};
+
 public:
     DnsServer(int port);
 
@@ -12,6 +15,6 @@ public:
 
     void start();
 
-    DnsPacket handle_query(DnsQuestion& req);
+    DnsPacket handle_query(const DnsPacket& request);
 
 };

@@ -2,7 +2,7 @@
 
 int main()
 {
-    DnsServer server(2053);
+    DnsServer server(53);
     server.start();
     return 0;
 }

@@ -27,8 +27,21 @@ public:
     void print() const;
     void write(BytePacketBuffer& buffer);
     void set_question(const DnsQuestion& new_question);
-    DnsHeader& get_header(){return header;}
+    DnsHeader& get_header() { return header; }
     const DnsHeader& get_header() const { return header; }
     DnsQuestion* get_question() { return question ? &*question : nullptr; }
     const DnsQuestion* get_question() const { return question ? &*question : nullptr; }
+
+    const std::vector<DnsRecord>& get_answers() const { return answers; }
+    const std::vector<DnsRecord>& get_authorities() const { return authorities; }
+    const std::vector<DnsRecord>& get_additionals() const { return additionals; }
+
+    std::vector<DnsRecord>& get_answers() { return answers; }
+    std::vector<DnsRecord>& get_authorities() { return authorities; }
+    std::vector<DnsRecord>& get_additionals() { return additionals; }
+
+    void add_answer(const DnsRecord& record) { answers.push_back(record); }
+    void add_authority(const DnsRecord& record) { authorities.push_back(record); }
+    void add_additional(const DnsRecord& record) { additionals.push_back(record); }
+    void set_answers(std::vector<DnsRecord> a) { answers = std::move(a); }
 };

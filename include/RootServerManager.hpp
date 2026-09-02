@@ -1,42 +1,75 @@
-#include "IPv4Address.hpp"
-#include <deque>
+#pragma once
 
-enum class ServerStatus{
-    UNKNOWN=0,
+#include "IPAddress.hpp"
+#include <chrono>
+#include <condition_variable>
+#include <cstddef>
+#include <cstdint>
+#include <mutex>
+#include <optional>
+#include <thread>
+#include <utility>
+#include <vector>
+
+class DnsPacket;
+
+using Clock = std::chrono::steady_clock;
+
+constexpr int UNKNOWN_RANGE = 10;
+constexpr int SLOWBAND_RANGE = 20;
+
+enum class ServerStatus
+{
+    UNKNOWN,
     SUCCESS,
     FAIL
 };
 
-struct QueryResult
+enum class SelectionCategory
 {
-    double latency_ms;
-    bool success;
+    UNKNOWN,
+    SLOW_BAND,
+    FAST_BAND
 };
 
+struct RootServer
+{
+    IPAddress address;
+    ServerStatus status{ServerStatus::UNKNOWN};
+    uint32_t consecutive_failures{};
+    std::size_t srtt_ms{};
 
-struct RootServer{
-
-    IPv4Address address;
-    ServerStatus status;
-
-    std::deque<QueryResult> recent_results;
-    uint32_t consecutive_failures;
-
-
-    size_t unpersisted_results = 0;
-
-    size_t recent_successes = 0;
-    double recent_total_latency = 0.0;
-    
-    
-    size_t total_samples;
-    size_t total_successes;
-    double total_average_latency;
-
+    explicit RootServer(IPAddress addr) : address(std::move(addr)) {}
+    void update_srtt(std::size_t measured_rtt_ms);
 };
 
-class RootServerManager{
+class RootServerManager
+{
+public:
+    RootServerManager();
+    ~RootServerManager();
 
+    RootServerManager(const RootServerManager&) = delete;
+    RootServerManager& operator=(const RootServerManager&) = delete;
+
+    SelectionCategory SelectCategory();
     
+    // Sends a complete DNS query directly to a configured root server.  The
+    // returned packet is the root server's response (normally an NS referral
+    // for the queried top-level domain).
+    DnsPacket AskRootServer(const DnsPacket& question_packet);
+    void StartProbing();
 
+private:
+    std::vector<RootServer> servers;
+    std::mutex mtx;
+    std::jthread probing_thread;
+    std::condition_variable_any cv;
+
+    SelectionCategory _select_category() const;
+    void ProbeLoop(std::stop_token stop_token);
+    void ProbeFailedServers();
+    std::size_t GetLeastSRTT() const;
+    void GetCandidates(SelectionCategory category, std::size_t least_srtt,
+                       std::vector<RootServer*>& candidates);
 };

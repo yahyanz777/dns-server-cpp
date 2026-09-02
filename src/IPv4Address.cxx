@@ -1,5 +1,6 @@
 #include "IPv4Address.hpp"
-#include <sstream>
+#include <arpa/inet.h>
+#include <cstring>
 #include <stdexcept>
 
 IPv4Address::IPv4Address()
@@ -9,51 +10,12 @@ IPv4Address::IPv4Address()
 
 IPv4Address::IPv4Address(const std::string &IP)
 {
-    std::array<uint8_t, 4> octs{};
-
-    size_t it = 0;
-
-    std::stringstream ss(IP);
-    std::string octet;
-
-    while (std::getline(ss, octet, '.'))
+    in_addr parsed{};
+    if (inet_pton(AF_INET, IP.c_str(), &parsed) != 1)
     {
-        if (it >= 4)
-        {
-            throw std::invalid_argument("Invalid IP address format");
-        }
-
-        if (octet.empty() || octet.length() > 3)
-        {
-            throw std::invalid_argument("Invalid octet in IP address");
-        }
-
-        int value;
-
-        try
-        {
-            value = std::stoi(octet);
-        }
-        catch (const std::exception &)
-        {
-            throw std::invalid_argument("Invalid octet in IP address");
-        }
-
-        if (value < 0 || value > 255)
-        {
-            throw std::invalid_argument("Invalid octet in IP address");
-        }
-
-        octs[it] = static_cast<uint8_t>(value);
-        ++it;
+        throw std::invalid_argument("Invalid IPv4 address");
     }
-
-    if (it != 4)
-    {
-        throw std::invalid_argument("Invalid IP address format");
-    }
-
-    octets = octs;
+    std::memcpy(octets.data(), &parsed, octets.size());
 }
 
 IPv4Address::IPv4Address(const std::array<uint8_t, 4> &octs)

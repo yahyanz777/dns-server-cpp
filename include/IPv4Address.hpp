@@ -16,4 +16,6 @@ public:
     IPv4Address(uint32_t ip);
     std::string to_string() const;
     uint32_t to_uint32() const;
+    const std::array<uint8_t, 4>& bytes() const { return octets; }
+    bool operator==(const IPv4Address&) const = default;
 };

@@ -60,6 +60,27 @@ void DnsHeader::set_recursion_desired(bool value)
         FLAGS &= ~(1 << 8);
 }
 
+void DnsHeader::set_response(bool value)
+{
+    if (value)
+        FLAGS |= (1 << 15);
+    else
+        FLAGS &= ~(1 << 15);
+}
+
+void DnsHeader::set_recursion_available(bool value)
+{
+    if (value)
+        FLAGS |= (1 << 7);
+    else
+        FLAGS &= ~(1 << 7);
+}
+
+void DnsHeader::set_result_code(ResultCode rcode)
+{
+    FLAGS = (FLAGS & 0xFFF0) | (static_cast<uint16_t>(rcode) & 0x000F);
+}
+
 void DnsHeader::print() const
 {
     std::cout << "ID: " << ID << std::endl;
