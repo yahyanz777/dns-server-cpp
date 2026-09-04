@@ -28,7 +28,6 @@ namespace
 
     uint32_t ExtractNegativeTtl(const DnsPacket &packet, uint32_t default_ttl = DEFAULT_NEGATIVE_TTL)
     {
-        // SOA records are placed in the authority section (RFC 1035 §3.3.13)
         for (const auto &record : packet.get_authorities())
         {
             if (const auto *soa = record.get_soa_record())
@@ -53,12 +52,12 @@ namespace
         return default_ttl;
     }
 
-    DnsPacket AskNameServer(const DnsPacket &query, const IPAddress &address)
+    DnsPacket QueryNameServer(const DnsPacket &query, const IPAddress &address)
     {
         DnsPacket request = query;
         request.get_header().set_recursion_desired(false);
 
-        BytePacketBuffer request_buffer;
+        BytePacketBuffer request_buffer(MAX_BUFFER_SIZE);
         try
         {
             request.write(request_buffer);
@@ -91,7 +90,7 @@ namespace
             return DnsPacket();
         }
 
-        BytePacketBuffer response_buffer;
+        BytePacketBuffer response_buffer(MAX_BUFFER_SIZE);
         SocketAddress response_addr;
         socklen_t response_addr_len = response_addr.length();
         const ssize_t received = recvfrom(socket_fd, response_buffer.get_buffer().data(), response_buffer.get_buffer().size(), 0,
@@ -126,9 +125,15 @@ namespace
 
 DnsResolver::DnsResolver() : root_server_manager() {}
 
-DnsPacket DnsResolver::lookup(const std::string &domain, QuestionType type)
+DnsPacket DnsResolver::lookup(const std::string &domain, QuestionType type,std::optional<EdnsInfo> edns_info)
 {
     DnsPacket packet;
+
+    if(edns_info.has_value())
+    {
+        packet.create_additional_opt_record(edns_info->max_payload_size, 0, edns_info->version, edns_info->dnssec_ok);
+    }
+   
 
     static thread_local std::mt19937 gen(std::random_device{}());
     std::uniform_int_distribution<uint16_t> dist(0, UINT16_MAX);
@@ -150,6 +155,10 @@ DnsPacket DnsResolver::lookup(const DnsPacket &query)
     {
         return DnsPacket();
     }
+
+    const std::optional<EdnsInfo> edns_info = query.get_edns_info();
+
+    const uint16_t max_payload_size = edns_info.has_value() ? edns_info->max_payload_size : 512;
 
     std::optional<DnsCacheEntry> cached_entry = is_cached(query);
     if (cached_entry.has_value())
@@ -194,7 +203,7 @@ DnsPacket DnsResolver::lookup(const DnsPacket &query)
         if (!response.get_answers().empty())
         {
 
-            const QuestionType requested_type = query.get_question()->getType();
+            const QuestionType requested_type = query.get_question()->get_type();
             if (requested_type != QuestionType::CNAME)
             {
                 constexpr std::size_t MAX_CNAME_HOPS = 10;
@@ -218,6 +227,7 @@ DnsPacket DnsResolver::lookup(const DnsPacket &query)
                         if (rec.get_type() == QuestionType::CNAME && rec.get_cname_record())
                         {
                             cname_target = rec.get_cname_record()->canonical_name;
+                            break;
                         }
                     }
 
@@ -240,7 +250,7 @@ DnsPacket DnsResolver::lookup(const DnsPacket &query)
                 }
             }
 
-            cache.put(DnsCacheKey{query.get_question()->getName(), query.get_question()->getType()},
+            cache.put(DnsCacheKey{query.get_question()->get_name(), query.get_question()->get_type()},
                       response.get_answers());
             return response;
         }
@@ -250,7 +260,7 @@ DnsPacket DnsResolver::lookup(const DnsPacket &query)
             if (response.get_header().get_result_code() == ResultCode::NXDOMAIN)
             {
                 const uint32_t neg_ttl = ExtractNegativeTtl(response);
-                cache.put(DnsCacheKey{query.get_question()->getName(), query.get_question()->getType()},
+                cache.put(DnsCacheKey{query.get_question()->get_name(), query.get_question()->get_type()},
                           CacheResult::NXDOMAIN, neg_ttl);
             }
             return response;
@@ -259,7 +269,7 @@ DnsPacket DnsResolver::lookup(const DnsPacket &query)
         if (response.get_authorities().empty() && response.get_additionals().empty())
         {
             const uint32_t neg_ttl = ExtractNegativeTtl(response);
-            cache.put(DnsCacheKey{query.get_question()->getName(), query.get_question()->getType()},
+            cache.put(DnsCacheKey{query.get_question()->get_name(), query.get_question()->get_type()},
                       CacheResult::NODATA, neg_ttl);
             return response;
         }
@@ -326,7 +336,7 @@ DnsPacket DnsResolver::lookup(const DnsPacket &query)
         if (candidate_nameservers.empty())
         {
             const uint32_t neg_ttl = ExtractNegativeTtl(response);
-            cache.put(DnsCacheKey{query.get_question()->getName(), query.get_question()->getType()},
+            cache.put(DnsCacheKey{query.get_question()->get_name(), query.get_question()->get_type()},
                       CacheResult::NODATA, neg_ttl);
             return response;
         }
@@ -340,7 +350,7 @@ DnsPacket DnsResolver::lookup(const DnsPacket &query)
             }
             queried_servers.push_back(server_address);
 
-            DnsPacket current_response = AskNameServer(query, server_address);
+            DnsPacket current_response = QueryNameServer(query, server_address);
             if (current_response.get_header().is_response() &&
                 (current_response.get_header().get_result_code() != ResultCode::NOERROR ||
                  !current_response.get_answers().empty() ||
@@ -356,7 +366,7 @@ DnsPacket DnsResolver::lookup(const DnsPacket &query)
         if (!queried_successfully)
         {
             const uint32_t neg_ttl = ExtractNegativeTtl(response);
-            cache.put(DnsCacheKey{query.get_question()->getName(), query.get_question()->getType()},
+            cache.put(DnsCacheKey{query.get_question()->get_name(), query.get_question()->get_type()},
                       CacheResult::NODATA, neg_ttl);
             return response;
         }
@@ -371,5 +381,5 @@ std::optional<DnsCacheEntry> DnsResolver::is_cached(const DnsPacket &query)
     {
         return std::nullopt;
     }
-    return cache.get(DnsCacheKey{query.get_question()->getName(), query.get_question()->getType()});
+    return cache.get(DnsCacheKey{query.get_question()->get_name(), query.get_question()->get_type()});
 }

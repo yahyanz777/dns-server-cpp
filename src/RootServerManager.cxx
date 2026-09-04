@@ -134,7 +134,7 @@ DnsPacket RootServerManager::AskRootServer(const DnsPacket& question_packet)
 
     DnsPacket request = question_packet;
     request.get_header().set_recursion_desired(false);
-    BytePacketBuffer request_buffer;
+    BytePacketBuffer request_buffer(MAX_BUFFER_SIZE);
     try
     {
         request.write(request_buffer);
@@ -166,7 +166,7 @@ DnsPacket RootServerManager::AskRootServer(const DnsPacket& question_packet)
         return DnsPacket();
     }
 
-    BytePacketBuffer response_buffer;
+    BytePacketBuffer response_buffer(MAX_BUFFER_SIZE);
     SocketAddress response_addr;
     socklen_t response_addr_len = response_addr.length();
     const ssize_t received = recvfrom(fd, response_buffer.get_buffer().data(), response_buffer.get_buffer().size(), 0,

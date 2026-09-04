@@ -89,3 +89,21 @@ void DnsPacket::write(BytePacketBuffer& buffer){
     }
 
 }
+
+
+std::optional<EdnsInfo> DnsPacket::get_edns_info() const {
+    for (const auto &record : additionals) {
+        if (const auto *opt = record.get_opt_record()) {
+            EdnsInfo info;
+            info.edns_present = true;
+            uint16_t client_size = std::max<uint16_t>(512, opt->udp_payload_size);
+            info.max_payload_size = std::min<uint16_t>(client_size, 1232);
+            info.dnssec_ok = opt->dnssec_ok;
+            info.version = opt->version;
+            return info;
+        }
+    }
+    return std::nullopt; // Zero heap allocation, fully type-safe
+}
+
+

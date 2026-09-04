@@ -6,20 +6,20 @@
 
 namespace
 {
-uint16_t qname_wire_length(const std::string& name)
-{
-    if (name.empty() || name == ".")
+    uint16_t qname_wire_length(const std::string &name)
     {
-        return 1;
-    }
+        if (name.empty() || name == ".")
+        {
+            return 1;
+        }
 
-    const std::size_t length = name.size() + (name.back() == '.' ? 1 : 2);
-    if (length > std::numeric_limits<uint16_t>::max())
-    {
-        throw std::length_error("DNS name is too large for an RDATA field");
+        const std::size_t length = name.size() + (name.back() == '.' ? 1 : 2);
+        if (length > std::numeric_limits<uint16_t>::max())
+        {
+            throw std::length_error("DNS name is too large for an RDATA field");
+        }
+        return static_cast<uint16_t>(length);
     }
-    return static_cast<uint16_t>(length);
-}
 }
 
 DnsRecord::DnsRecord(
@@ -60,7 +60,7 @@ DnsRecord DnsRecord::read(BytePacketBuffer &buffer)
 
         if (rdlength != 4)
             throw std::runtime_error("Invalid A record length");
-        
+
         uint32_t ip = buffer.read_u32();
         IPv4Address address(ip);
         data = ARecord{address};
@@ -71,7 +71,7 @@ DnsRecord DnsRecord::read(BytePacketBuffer &buffer)
     {
         if (rdlength != 16)
             throw std::runtime_error("Invalid AAAA record length");
-        
+
         std::array<uint8_t, 16> addr_bytes;
         for (size_t i = 0; i < 16; ++i)
         {
@@ -114,6 +114,18 @@ DnsRecord DnsRecord::read(BytePacketBuffer &buffer)
         uint32_t expire = buffer.read_u32();
         uint32_t minimum = buffer.read_u32();
         data = SOARecord{mname, rname, serial, refresh, retry, expire, minimum};
+    }
+    break;
+
+    case QuestionType::OPT:
+    {
+        uint16_t udp_payload_size = class_;
+        uint8_t extended_rcode = static_cast<uint8_t>((ttl >> 24) & 0xFF);
+        uint8_t version = static_cast<uint8_t>((ttl >> 16) & 0xFF);
+        uint16_t flags = static_cast<uint16_t>(ttl & 0xFFFF);
+        bool dnssec_ok = (flags & 0x8000) != 0;
+        std::vector<uint8_t> options = buffer.read_bytes(rdlength);
+        data = OPTRecord{udp_payload_size, extended_rcode, version, dnssec_ok, std::move(options)};
     }
     break;
 
@@ -169,8 +181,7 @@ void DnsRecord::printData() const
                    else if constexpr (std::is_same_v<T, UnknownRecord>)
                    {
                        std::cout << "Unknown Record: Data size: " << record.data.size();
-                   }
-               },
+                   } },
                data);
 }
 
@@ -184,7 +195,8 @@ void DnsRecord::print() const
 void DnsRecord::writeData(BytePacketBuffer &buffer) const
 {
 
-    std::visit([&buffer](const auto& record){
+    std::visit([&buffer](const auto &record)
+               {
         using T = std::decay_t<decltype(record)>;
         if constexpr (std::is_same_v<T,ARecord>){
             buffer.write_u16(4);
@@ -225,13 +237,19 @@ void DnsRecord::writeData(BytePacketBuffer &buffer) const
             buffer.write_u32(record.expire_limit);
             buffer.write_u32(record.minimum_ttl);
         }
+        else if constexpr (std::is_same_v<T, OPTRecord>) {
+    buffer.write_u16(static_cast<uint16_t>(record.options_raw.size()));
+    for (uint8_t byte : record.options_raw) {
+        buffer.write_u8(byte);
+    }
+}
+
         else if constexpr (std::is_same_v<T,UnknownRecord>){
             buffer.write_u16(static_cast<uint16_t>(record.data.size()));
             for (uint8_t byte : record.data){
                 buffer.write_u8(byte);
             }
-        }
-    },data);
+        } }, data);
 }
 
 void DnsRecord::write(BytePacketBuffer &buffer) const
@@ -243,5 +261,4 @@ void DnsRecord::write(BytePacketBuffer &buffer) const
     buffer.write_u32(ttl);
 
     writeData(buffer);
-
 }

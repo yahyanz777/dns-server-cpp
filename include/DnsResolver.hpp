@@ -7,12 +7,17 @@
 #include <optional>
 #include <string>
 
+
+
+
+
+
 class DnsResolver
 {
 private:
     RootServerManager root_server_manager;
     DnsCache cache;
-
+    
 public:
     DnsResolver();
     ~DnsResolver() = default;
@@ -20,7 +25,7 @@ public:
     DnsResolver(const DnsResolver&) = delete;
     DnsResolver& operator=(const DnsResolver&) = delete;
 
-    DnsPacket lookup(const std::string& domain, QuestionType type = QuestionType::A);
+    DnsPacket lookup(const std::string& domain, QuestionType type = QuestionType::A, std::optional<EdnsInfo> edns_info = {});
     DnsPacket lookup(const DnsPacket& query);
     std::optional<DnsCacheEntry> is_cached(const DnsPacket& query);
     DnsCache& get_cache() { return cache; }

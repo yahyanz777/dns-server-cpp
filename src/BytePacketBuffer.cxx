@@ -4,20 +4,38 @@
 #include <stdexcept>
 #include <utility>
 
+
 namespace
 {
     void require_available(std::size_t pos, std::size_t need, std::size_t len)
     {
-        if (pos > len || need > len - pos)
+        if ( pos > len || need > len - pos)
         {
             throw std::out_of_range("BytePacketBuffer read out of bounds");
         }
     }
 }
 
-BytePacketBuffer::BytePacketBuffer(std::initializer_list<uint8_t> bytes)
+BytePacketBuffer::BytePacketBuffer(std::initializer_list<uint8_t> bytes, std::size_t capacity)
+    : max_capacity{std::min(capacity, MAX_BUFFER_SIZE)}
 {
-    if (bytes.size() > buff.size())
+    if (bytes.size() >max_capacity)
+    {
+        throw std::length_error("DNS packet exceeds buffer capacity");
+    }
+
+    len = bytes.size();
+    std::copy_n(bytes.begin(), len, buff.begin());
+    pos = 0;
+}
+
+BytePacketBuffer::BytePacketBuffer(std::size_t capacity)
+    : max_capacity(std::min(capacity, MAX_BUFFER_SIZE)) {}
+
+BytePacketBuffer::BytePacketBuffer(const std::vector<uint8_t> &bytes, std::size_t capacity)
+    : max_capacity{std::min(capacity, MAX_BUFFER_SIZE)}
+{
+    if (bytes.size() >max_capacity)
     {
         throw std::length_error("DNS packet exceeds the 512-byte buffer capacity");
     }
@@ -27,16 +45,10 @@ BytePacketBuffer::BytePacketBuffer(std::initializer_list<uint8_t> bytes)
     pos = 0;
 }
 
-BytePacketBuffer::BytePacketBuffer(const std::vector<uint8_t> &bytes)
-{
-    if (bytes.size() > buff.size())
-    {
-        throw std::length_error("DNS packet exceeds the 512-byte buffer capacity");
-    }
 
-    len = bytes.size();
-    std::copy_n(bytes.begin(), len, buff.begin());
-    pos = 0;
+void BytePacketBuffer::set_max_capacity(std::size_t capacity) noexcept
+{
+    max_capacity = std::min(capacity, MAX_BUFFER_SIZE);
 }
 
 uint8_t BytePacketBuffer::read_u8()
@@ -176,7 +188,7 @@ std::size_t BytePacketBuffer::remaining() const noexcept
 
 void BytePacketBuffer::write_u8(uint8_t byte)
 {
-    if (pos >= buff.size())
+    if (pos >= max_capacity)
     {
         throw std::length_error("DNS packet exceeds buffer capacity");
     }
@@ -234,12 +246,12 @@ void BytePacketBuffer::write_qname(const std::string &domain)
     write_u8(0);
 }
 
-std::array<uint8_t, 512>& BytePacketBuffer::get_buffer() noexcept
+std::array<uint8_t, MAX_BUFFER_SIZE>& BytePacketBuffer::get_buffer() noexcept
 {
     return buff;
 }
 
-const std::array<uint8_t, 512>& BytePacketBuffer::get_buffer() const noexcept
+const std::array<uint8_t, MAX_BUFFER_SIZE>& BytePacketBuffer::get_buffer() const noexcept
 {
     return buff;
 }

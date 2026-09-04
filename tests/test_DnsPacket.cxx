@@ -89,3 +89,27 @@ TEST(DnsPacketTest, AutomaticallySynchronizesHeaderCounts)
     EXPECT_EQ(packet.get_header().get_NSCOUNT(), 0);
     EXPECT_EQ(packet.get_header().get_ARCOUNT(), 0);
 }
+
+TEST(DnsPacketTest, CreatesAndExtractsEdnsInfo)
+{
+    DnsPacket packet;
+    EXPECT_FALSE(packet.get_edns_info().has_value());
+
+    packet.create_additional_opt_record(1232, 0, 0, true);
+    auto edns = packet.get_edns_info();
+    ASSERT_TRUE(edns.has_value());
+    EXPECT_TRUE(edns->edns_present);
+    EXPECT_EQ(edns->max_payload_size, 1232);
+    EXPECT_TRUE(edns->dnssec_ok);
+    EXPECT_EQ(edns->version, 0);
+
+    BytePacketBuffer buffer(1232);
+    packet.write(buffer);
+
+    buffer.seek(0);
+    DnsPacket decoded = DnsPacket::read(buffer);
+    auto decoded_edns = decoded.get_edns_info();
+    ASSERT_TRUE(decoded_edns.has_value());
+    EXPECT_EQ(decoded_edns->max_payload_size, 1232);
+    EXPECT_TRUE(decoded_edns->dnssec_ok);
+}

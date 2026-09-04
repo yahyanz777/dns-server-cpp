@@ -6,7 +6,9 @@
 
 #include <array>
 #include <cerrno>
+#include <chrono>
 #include <cstring>
+#include <iostream>
 #include <netinet/in.h>
 #include <stdexcept>
 #include <sys/socket.h>
@@ -15,13 +17,27 @@
 
 namespace
 {
+std::string ResultCodeToString(ResultCode code)
+{
+    switch (code)
+    {
+    case ResultCode::NOERROR:  return "NOERROR";
+    case ResultCode::FORMERR:  return "FORMERR";
+    case ResultCode::SERVFAIL: return "SERVFAIL";
+    case ResultCode::NXDOMAIN: return "NXDOMAIN";
+    case ResultCode::NOTIMP:   return "NOTIMP";
+    case ResultCode::REFUSED:  return "REFUSED";
+    default:                   return "UNKNOWN";
+    }
+}
+
 DnsPacket MakeServerFailure(const DnsPacket& request)
 {
     DnsPacket response = request;
     DnsHeader& header = response.get_header();
-    header.set_response(true);             // QR: response
-    header.set_recursion_available(false); // RA: this server does not recurse
-    header.set_result_code(ResultCode::SERVFAIL); // RCODE: SERVFAIL
+    header.set_response(true);
+    header.set_recursion_available(false);
+    header.set_result_code(ResultCode::SERVFAIL);
     return response;
 }
 
@@ -147,13 +163,38 @@ void DnsServer::start()
                     continue;
                 }
 
+                const auto start_time = std::chrono::steady_clock::now();
+                const std::string qname = packet.get_question()->get_name();
+                const std::string qtype = GetQuestionTypeName(packet.get_question()->get_type());
+
+                const auto client_edns = packet.get_edns_info();
+
                 DnsPacket response = handle_query(packet);
                 if (!response.get_header().is_response() || response.get_question() == nullptr)
                 {
                     response = MakeServerFailure(packet);
                 }
 
-                BytePacketBuffer response_buffer;
+                const auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
+                    std::chrono::steady_clock::now() - start_time).count();
+                const std::string rcode_str = ResultCodeToString(response.get_header().get_result_code());
+                const std::size_t answers_count = response.get_answers().size();
+
+                std::cout << "[QUERY] " << qname << " (" << qtype << ") -> " 
+                          << rcode_str << " (" << answers_count << " answers) [" 
+                          << duration_ms << "ms]" << std::endl;
+
+                if (client_edns.has_value() && !response.get_edns_info().has_value())
+                {
+                    response.create_additional_opt_record(
+                        client_edns->max_payload_size,
+                        0,
+                        0,
+                        client_edns->dnssec_ok);
+                }
+
+                std::size_t response_capacity = client_edns.has_value() ? client_edns->max_payload_size : DEFAULT_BUFFER_SIZE;
+                BytePacketBuffer response_buffer(response_capacity);
                 response.write(response_buffer);
                 if (sendto(descriptor.fd, response_buffer.get_buffer().data(), response_buffer.get_length(), 0,
                            client_addr.sockaddr_ptr(), client_addr.length()) < 0)

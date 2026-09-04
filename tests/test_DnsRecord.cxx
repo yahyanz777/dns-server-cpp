@@ -169,3 +169,27 @@ TEST(DnsRecordTest, RejectsInvalidAAAARecordLength)
     BytePacketBuffer buffer{0, 0, 28, 0, 1, 0, 0, 0, 0, 0, 4, 1, 2, 3, 4};
     EXPECT_THROW(DnsRecord::read(buffer), std::runtime_error);
 }
+
+TEST(DnsRecordTest, RoundTripsOPTRecord)
+{
+    std::vector<uint8_t> options = {0x00, 0x08, 0x00, 0x02, 0x00, 0x00}; // example option
+    OPTRecord opt{1232, 0, 0, true, options};
+    uint32_t ttl = 0x00008000; // DO bit set
+    DnsRecord original("", QuestionType::OPT, 1232, ttl, static_cast<uint16_t>(options.size()), opt);
+
+    BytePacketBuffer buffer(1232);
+    original.write(buffer);
+
+    buffer.seek(0);
+    DnsRecord decoded = DnsRecord::read(buffer);
+
+    EXPECT_EQ(decoded.get_type(), QuestionType::OPT);
+    EXPECT_EQ(decoded.get_class(), 1232);
+    EXPECT_EQ(decoded.get_ttl(), ttl);
+    ASSERT_NE(decoded.get_opt_record(), nullptr);
+    EXPECT_EQ(decoded.get_opt_record()->udp_payload_size, 1232);
+    EXPECT_EQ(decoded.get_opt_record()->extended_rcode, 0);
+    EXPECT_EQ(decoded.get_opt_record()->version, 0);
+    EXPECT_TRUE(decoded.get_opt_record()->dnssec_ok);
+    EXPECT_EQ(decoded.get_opt_record()->options_raw, options);
+}

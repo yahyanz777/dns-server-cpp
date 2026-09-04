@@ -7,7 +7,8 @@ enum class QuestionType {
     CNAME = 5,
     SOA = 6,
     MX = 15,
-    AAAA = 28
+    AAAA = 28,
+    OPT = 41
 };
 
 inline std::string GetQuestionTypeName(QuestionType type) {
@@ -18,6 +19,7 @@ inline std::string GetQuestionTypeName(QuestionType type) {
         case QuestionType::SOA: return "SOA";
         case QuestionType::MX: return "MX";
         case QuestionType::AAAA: return "AAAA";
+        case QuestionType::OPT: return "OPT";
         default: return "Unknown";
     }
 }

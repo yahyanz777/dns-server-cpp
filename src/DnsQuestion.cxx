@@ -5,15 +5,15 @@ DnsQuestion::DnsQuestion(const std::string& n, QuestionType t, uint16_t c)
     : name(std::move(n)), type(t), class_(c) {}
 
 
-const std::string& DnsQuestion::getName() const {
+const std::string& DnsQuestion::get_name() const {
     return name;
 }    
 
-QuestionType DnsQuestion::getType() const {
+QuestionType DnsQuestion::get_type() const {
     return type;
 }
 
-uint16_t DnsQuestion::getClass() const {
+uint16_t DnsQuestion::get_class() const {
     return class_;
 }
 

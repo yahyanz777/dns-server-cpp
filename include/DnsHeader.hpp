@@ -31,6 +31,12 @@ public:
     uint16_t get_NSCOUNT() const;
     uint16_t get_ARCOUNT() const;
 
+
+    uint16_t question_count() const { return get_QDCOUNT(); }
+    uint16_t answer_count() const { return get_ACOUNT(); }
+    uint16_t authority_count() const { return get_NSCOUNT(); }
+    uint16_t additional_count() const { return get_ARCOUNT(); }
+
     void set_QDCOUNT(uint16_t count) { QDCOUNT = count; }
     void set_ACOUNT(uint16_t count) { ANCOUNT = count; }
     void set_NSCOUNT(uint16_t count) { NSCOUNT = count; }
