@@ -76,6 +76,14 @@ void DnsHeader::set_recursion_available(bool value)
         FLAGS &= ~(1 << 7);
 }
 
+void DnsHeader::set_authoritative(bool value)
+{
+    if (value)
+        FLAGS |= (1 << 10);
+    else
+        FLAGS &= ~(1 << 10);
+}
+
 void DnsHeader::set_result_code(ResultCode rcode)
 {
     FLAGS = (FLAGS & 0xFFF0) | (static_cast<uint16_t>(rcode) & 0x000F);

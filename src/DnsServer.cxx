@@ -4,6 +4,7 @@
 #include <cstdio>
 #include "SocketAddress.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cerrno>
 #include <chrono>
@@ -33,10 +34,17 @@ std::string ResultCodeToString(ResultCode code)
 
 DnsPacket MakeServerFailure(const DnsPacket& request)
 {
-    DnsPacket response = request;
+    DnsPacket response;
+    if (request.get_question())
+    {
+        response.set_question(*request.get_question());
+    }
     DnsHeader& header = response.get_header();
+    header.ID = request.get_header().ID;
     header.set_response(true);
-    header.set_recursion_available(false);
+    header.set_authoritative(false);
+    header.set_recursion_desired(request.get_header().recursion_desired());
+    header.set_recursion_available(true);
     header.set_result_code(ResultCode::SERVFAIL);
     return response;
 }
@@ -175,6 +183,13 @@ void DnsServer::start()
                     response = MakeServerFailure(packet);
                 }
 
+                // Enforce recursive resolver header invariants
+                response.get_header().ID = packet.get_header().ID;
+                response.get_header().set_response(true);
+                response.get_header().set_authoritative(false);
+                response.get_header().set_recursion_available(true);
+                response.get_header().set_recursion_desired(packet.get_header().recursion_desired());
+
                 const auto duration_ms = std::chrono::duration_cast<std::chrono::milliseconds>(
                     std::chrono::steady_clock::now() - start_time).count();
                 const std::string rcode_str = ResultCodeToString(response.get_header().get_result_code());
@@ -184,7 +199,16 @@ void DnsServer::start()
                           << rcode_str << " (" << answers_count << " answers) [" 
                           << duration_ms << "ms]" << std::endl;
 
-                if (client_edns.has_value() && !response.get_edns_info().has_value())
+                // Strip any upstream OPT records so they do not leak to the client
+                auto& additionals = response.get_additionals();
+                additionals.erase(
+                    std::remove_if(additionals.begin(), additionals.end(),
+                                   [](const DnsRecord& rec) {
+                                       return rec.get_type() == QuestionType::OPT;
+                                   }),
+                    additionals.end());
+
+                if (client_edns.has_value())
                 {
                     response.create_additional_opt_record(
                         client_edns->max_payload_size,

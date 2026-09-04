@@ -113,3 +113,29 @@ TEST(DnsPacketTest, CreatesAndExtractsEdnsInfo)
     EXPECT_EQ(decoded_edns->max_payload_size, 1232);
     EXPECT_TRUE(decoded_edns->dnssec_ok);
 }
+
+TEST(DnsPacketTest, StripsAndReplacesOptRecord)
+{
+    DnsPacket packet;
+    packet.create_additional_opt_record(4096, 0, 0, false);
+    EXPECT_EQ(packet.get_additionals().size(), 1U);
+    EXPECT_EQ(packet.get_edns_info()->max_payload_size, 1232); // capped at 1232 by get_edns_info
+
+    // Strip OPT record
+    auto& additionals = packet.get_additionals();
+    additionals.erase(
+        std::remove_if(additionals.begin(), additionals.end(),
+                       [](const DnsRecord& rec) {
+                           return rec.get_type() == QuestionType::OPT;
+                       }),
+        additionals.end());
+    EXPECT_TRUE(packet.get_additionals().empty());
+    EXPECT_FALSE(packet.get_edns_info().has_value());
+
+    // Recreate matching client size
+    packet.create_additional_opt_record(1232, 0, 0, true);
+    ASSERT_TRUE(packet.get_edns_info().has_value());
+    EXPECT_EQ(packet.get_edns_info()->max_payload_size, 1232);
+    EXPECT_TRUE(packet.get_edns_info()->dnssec_ok);
+}
+

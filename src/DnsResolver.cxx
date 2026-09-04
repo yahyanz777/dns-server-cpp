@@ -54,8 +54,14 @@ namespace
 
     DnsPacket QueryNameServer(const DnsPacket &query, const IPAddress &address)
     {
-        DnsPacket request = query;
+        DnsPacket request;
+        if (query.get_question())
+        {
+            request.set_question(*query.get_question());
+        }
+        request.get_header().ID = query.get_header().ID;
         request.get_header().set_recursion_desired(false);
+        request.create_additional_opt_record(1232, 0, 0, false);
 
         BytePacketBuffer request_buffer(MAX_BUFFER_SIZE);
         try
@@ -120,6 +126,24 @@ namespace
         {
             return DnsPacket();
         }
+    }
+
+    DnsPacket FinalizeResponse(DnsPacket response, const DnsPacket &query)
+    {
+        if (response.get_header().is_response())
+        {
+            DnsHeader &header = response.get_header();
+            header.ID = query.get_header().ID;
+            header.set_response(true);
+            header.set_authoritative(false);
+            header.set_recursion_available(true);
+            header.set_recursion_desired(query.get_header().recursion_desired());
+            if (!response.get_question() && query.get_question())
+            {
+                response.set_question(*query.get_question());
+            }
+        }
+        return response;
     }
 }
 
@@ -252,7 +276,7 @@ DnsPacket DnsResolver::lookup(const DnsPacket &query)
 
             cache.put(DnsCacheKey{query.get_question()->get_name(), query.get_question()->get_type()},
                       response.get_answers());
-            return response;
+            return FinalizeResponse(response, query);
         }
 
         if (response.get_header().get_result_code() != ResultCode::NOERROR)
@@ -263,7 +287,7 @@ DnsPacket DnsResolver::lookup(const DnsPacket &query)
                 cache.put(DnsCacheKey{query.get_question()->get_name(), query.get_question()->get_type()},
                           CacheResult::NXDOMAIN, neg_ttl);
             }
-            return response;
+            return FinalizeResponse(response, query);
         }
 
         if (response.get_authorities().empty() && response.get_additionals().empty())
@@ -271,7 +295,7 @@ DnsPacket DnsResolver::lookup(const DnsPacket &query)
             const uint32_t neg_ttl = ExtractNegativeTtl(response);
             cache.put(DnsCacheKey{query.get_question()->get_name(), query.get_question()->get_type()},
                       CacheResult::NODATA, neg_ttl);
-            return response;
+            return FinalizeResponse(response, query);
         }
 
         // Collect authoritative nameserver hostnames from NS records in authority section
@@ -338,7 +362,7 @@ DnsPacket DnsResolver::lookup(const DnsPacket &query)
             const uint32_t neg_ttl = ExtractNegativeTtl(response);
             cache.put(DnsCacheKey{query.get_question()->get_name(), query.get_question()->get_type()},
                       CacheResult::NODATA, neg_ttl);
-            return response;
+            return FinalizeResponse(response, query);
         }
 
         bool queried_successfully = false;
@@ -368,11 +392,11 @@ DnsPacket DnsResolver::lookup(const DnsPacket &query)
             const uint32_t neg_ttl = ExtractNegativeTtl(response);
             cache.put(DnsCacheKey{query.get_question()->get_name(), query.get_question()->get_type()},
                       CacheResult::NODATA, neg_ttl);
-            return response;
+            return FinalizeResponse(response, query);
         }
     }
 
-    return response;
+    return FinalizeResponse(response, query);
 }
 
 std::optional<DnsCacheEntry> DnsResolver::is_cached(const DnsPacket &query)

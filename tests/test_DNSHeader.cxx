@@ -65,6 +65,11 @@ TEST(DNSHeaderTest, FlagManipulation)
     header.set_recursion_available(false);
     EXPECT_FALSE(header.recursion_available());
 
+    header.set_authoritative(true);
+    EXPECT_TRUE(header.is_authoritative());
+    header.set_authoritative(false);
+    EXPECT_FALSE(header.is_authoritative());
+
     header.set_result_code(ResultCode::SERVFAIL);
     EXPECT_EQ(header.get_result_code(), ResultCode::SERVFAIL);
 

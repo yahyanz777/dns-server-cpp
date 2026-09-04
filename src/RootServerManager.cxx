@@ -92,116 +92,167 @@ SelectionCategory RootServerManager::_select_category() const
 
 DnsPacket RootServerManager::AskRootServer(const DnsPacket& question_packet)
 {
-    RootServer* selected_server = nullptr;
-    IPAddress selected_address;
-    {
-        std::lock_guard lock(mtx);
-        const SelectionCategory category = _select_category();
-        const std::size_t least_srtt = GetLeastSRTT();
-        std::vector<RootServer *> candidates;
-        GetCandidates(category, least_srtt, candidates);
+    std::vector<IPAddress> tried_servers;
+    constexpr std::size_t MAX_ATTEMPTS = 5;
 
-        // A category may be empty when all known servers are in a different
-        // latency band.  In that case, any non-failed root is preferable to
-        // failing the lookup without making a network request.
-        if (candidates.empty())
+    for (std::size_t attempt = 0; attempt < MAX_ATTEMPTS; ++attempt)
+    {
+        RootServer* selected_server = nullptr;
+        IPAddress selected_address;
         {
-            for (auto& server : servers)
+            std::lock_guard lock(mtx);
+            const SelectionCategory category = _select_category();
+            const std::size_t least_srtt = GetLeastSRTT();
+            std::vector<RootServer *> candidates;
+            GetCandidates(category, least_srtt, candidates);
+
+            // Filter out servers already tried during this lookup
+            auto it = std::remove_if(candidates.begin(), candidates.end(), [&](RootServer* s) {
+                return std::find(tried_servers.begin(), tried_servers.end(), s->address) != tried_servers.end();
+            });
+            candidates.erase(it, candidates.end());
+
+            // If selected category has no remaining untried candidates, fall back to any untried non-failed root
+            if (candidates.empty())
             {
-                if (server.status != ServerStatus::FAIL)
+                for (auto& server : servers)
                 {
-                    candidates.push_back(&server);
+                    if (server.status != ServerStatus::FAIL &&
+                        std::find(tried_servers.begin(), tried_servers.end(), server.address) == tried_servers.end())
+                    {
+                        candidates.push_back(&server);
+                    }
                 }
             }
+
+            // If still empty, try any untried server
+            if (candidates.empty())
+            {
+                for (auto& server : servers)
+                {
+                    if (std::find(tried_servers.begin(), tried_servers.end(), server.address) == tried_servers.end())
+                    {
+                        candidates.push_back(&server);
+                    }
+                }
+            }
+
+            if (candidates.empty())
+            {
+                break;
+            }
+
+            static thread_local std::mt19937 generator(std::random_device{}());
+            std::uniform_int_distribution<std::size_t> distribution(0, candidates.size() - 1);
+            selected_server = candidates[distribution(generator)];
+            selected_address = selected_server->address;
         }
-        if (candidates.empty())
+
+        tried_servers.push_back(selected_address);
+
+        const SocketAddress server_addr = SocketAddress::from_ip(selected_address, 53);
+        int fd = socket(server_addr.family(), SOCK_DGRAM, 0);
+        if (fd < 0)
         {
-            return DnsPacket();
+            std::lock_guard lock(mtx);
+            ++selected_server->consecutive_failures;
+            selected_server->status = ServerStatus::FAIL;
+            continue;
         }
 
-        static thread_local std::mt19937 generator(std::random_device{}());
-        std::uniform_int_distribution<std::size_t> distribution(0, candidates.size() - 1);
-        selected_server = candidates[distribution(generator)];
-        selected_address = selected_server->address;
-    }
-
-    const SocketAddress server_addr = SocketAddress::from_ip(selected_address, 53);
-    int fd = socket(server_addr.family(), SOCK_DGRAM, 0);
-    if (fd < 0)
-    {
-        return DnsPacket();
-    }
-
-    DnsPacket request = question_packet;
-    request.get_header().set_recursion_desired(false);
-    BytePacketBuffer request_buffer(MAX_BUFFER_SIZE);
-    try
-    {
-        request.write(request_buffer);
-    }
-    catch (const std::exception&)
-    {
-        close(fd);
-        return DnsPacket();
-    }
-
-    using Clock = std::chrono::steady_clock;
-
-    auto start_time = Clock::now();
-    const ssize_t sent = sendto(fd, request_buffer.get_buffer().data(), request_buffer.get_length(), 0,
-                                server_addr.sockaddr_ptr(), server_addr.length());
-    if (sent != static_cast<ssize_t>(request_buffer.get_length()))
-    {
-        close(fd);
-        return DnsPacket();
-    }
-
-    pollfd poll_descriptor{fd, POLLIN, 0};
-    if (poll(&poll_descriptor, 1, 1000) <= 0 || !(poll_descriptor.revents & POLLIN))
-    {
-        close(fd);
-        std::lock_guard lock(mtx);
-        ++selected_server->consecutive_failures;
-        selected_server->status = ServerStatus::FAIL;
-        return DnsPacket();
-    }
-
-    BytePacketBuffer response_buffer(MAX_BUFFER_SIZE);
-    SocketAddress response_addr;
-    socklen_t response_addr_len = response_addr.length();
-    const ssize_t received = recvfrom(fd, response_buffer.get_buffer().data(), response_buffer.get_buffer().size(), 0,
-                                      response_addr.sockaddr_ptr(), &response_addr_len);
-    close(fd);
-    if (received < 0)
-    {
-        return DnsPacket();
-    }
-    response_addr.set_length(response_addr_len);
-    if (!(response_addr == server_addr))
-    {
-        return DnsPacket();
-    }
-
-    response_buffer.set_length(static_cast<std::size_t>(received));
-    try
-    {
-        DnsPacket response = DnsPacket::read(response_buffer);
-        if (!response.get_header().is_response() || response.get_header().ID != request.get_header().ID)
+        // Build clean iterative query for root server without leaking client-specific options/cookies
+        DnsPacket request;
+        if (question_packet.get_question())
         {
-            return DnsPacket();
+            request.set_question(*question_packet.get_question());
+        }
+        request.get_header().ID = question_packet.get_header().ID;
+        request.get_header().set_recursion_desired(false);
+        request.create_additional_opt_record(1232, 0, 0, false);
+
+        BytePacketBuffer request_buffer(MAX_BUFFER_SIZE);
+        try
+        {
+            request.write(request_buffer);
+        }
+        catch (const std::exception&)
+        {
+            close(fd);
+            continue;
         }
 
-        const auto rtt_ms = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - start_time).count();
-        std::lock_guard lock(mtx);
-        selected_server->update_srtt(static_cast<std::size_t>(rtt_ms));
-        selected_server->status = ServerStatus::SUCCESS;
-        selected_server->consecutive_failures = 0;
-        return response;
+        using Clock = std::chrono::steady_clock;
+
+        auto start_time = Clock::now();
+        const ssize_t sent = sendto(fd, request_buffer.get_buffer().data(), request_buffer.get_length(), 0,
+                                    server_addr.sockaddr_ptr(), server_addr.length());
+        if (sent != static_cast<ssize_t>(request_buffer.get_length()))
+        {
+            close(fd);
+            std::lock_guard lock(mtx);
+            ++selected_server->consecutive_failures;
+            selected_server->status = ServerStatus::FAIL;
+            continue;
+        }
+
+        pollfd poll_descriptor{fd, POLLIN, 0};
+        if (poll(&poll_descriptor, 1, 1000) <= 0 || !(poll_descriptor.revents & POLLIN))
+        {
+            close(fd);
+            std::lock_guard lock(mtx);
+            ++selected_server->consecutive_failures;
+            selected_server->status = ServerStatus::FAIL;
+            continue;
+        }
+
+        BytePacketBuffer response_buffer(MAX_BUFFER_SIZE);
+        SocketAddress response_addr;
+        socklen_t response_addr_len = response_addr.length();
+        const ssize_t received = recvfrom(fd, response_buffer.get_buffer().data(), response_buffer.get_buffer().size(), 0,
+                                          response_addr.sockaddr_ptr(), &response_addr_len);
+        close(fd);
+        if (received < 0)
+        {
+            std::lock_guard lock(mtx);
+            ++selected_server->consecutive_failures;
+            selected_server->status = ServerStatus::FAIL;
+            continue;
+        }
+        response_addr.set_length(response_addr_len);
+        if (!(response_addr == server_addr))
+        {
+            continue;
+        }
+
+        response_buffer.set_length(static_cast<std::size_t>(received));
+        try
+        {
+            DnsPacket response = DnsPacket::read(response_buffer);
+            if (!response.get_header().is_response() || response.get_header().ID != request.get_header().ID)
+            {
+                std::lock_guard lock(mtx);
+                ++selected_server->consecutive_failures;
+                selected_server->status = ServerStatus::FAIL;
+                continue;
+            }
+
+            const auto rtt_ms = std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - start_time).count();
+            std::lock_guard lock(mtx);
+            selected_server->update_srtt(static_cast<std::size_t>(rtt_ms));
+            selected_server->status = ServerStatus::SUCCESS;
+            selected_server->consecutive_failures = 0;
+            return response;
+        }
+        catch (const std::exception&)
+        {
+            std::lock_guard lock(mtx);
+            ++selected_server->consecutive_failures;
+            selected_server->status = ServerStatus::FAIL;
+            continue;
+        }
     }
-    catch (const std::exception&)
-    {
-        return DnsPacket();
-    }
+
+    return DnsPacket();
 }
 
 void RootServerManager::StartProbing()

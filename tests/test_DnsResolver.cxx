@@ -158,6 +158,27 @@ TEST(DnsResolverTest, ProtectsAgainstCNAMELoop)
     EXPECT_TRUE(response.get_header().is_response());
 }
 
+TEST(DnsResolverTest, EnforcesRecursiveResolverHeaderInvariants)
+{
+    DnsResolver resolver;
+
+    // Cache a record to test resolver response formatting
+    DnsRecord a_rec("example.com", QuestionType::A, 1, 300, 4, ARecord{IPv4Address("93.184.216.34")});
+    resolver.get_cache().put(DnsCacheKey{"example.com", QuestionType::A}, a_rec);
+
+    DnsPacket query;
+    query.get_header().ID = 0xABCD;
+    query.get_header().set_recursion_desired(true);
+    query.set_question(DnsQuestion("example.com", QuestionType::A));
+
+    DnsPacket response = resolver.lookup(query);
+    EXPECT_TRUE(response.get_header().is_response());
+    EXPECT_EQ(response.get_header().ID, 0xABCD);
+    EXPECT_TRUE(response.get_header().recursion_desired());
+    EXPECT_TRUE(response.get_header().recursion_available());
+    EXPECT_FALSE(response.get_header().is_authoritative());
+}
+
 TEST(DnsResolverTest, FailedLookupDoesNotPolluteCache)
 {
     DnsResolver resolver;
@@ -168,8 +189,6 @@ TEST(DnsResolverTest, FailedLookupDoesNotPolluteCache)
     query.set_question(DnsQuestion("offline.test.invalid", QuestionType::A));
 
     DnsPacket resp = resolver.lookup(query);
-    // If root servers cannot be reached in unit test environment, response is not a valid response
-    // and cache must NOT be polluted with fake NODATA
     if (!resp.get_header().is_response())
     {
         EXPECT_TRUE(resp.get_answers().empty());
@@ -177,7 +196,7 @@ TEST(DnsResolverTest, FailedLookupDoesNotPolluteCache)
     }
     else
     {
-        // If internet is available, root responds with NXDOMAIN
         EXPECT_EQ(resp.get_header().get_result_code(), ResultCode::NXDOMAIN);
     }
 }
+
