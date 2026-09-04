@@ -50,7 +50,7 @@ dig @127.0.0.1 -p 2053 google.com AAAA
 
 ---
 
-## What's Missing / Future Work
+## Future Work
 
 - **TCP Fallback**: Handle responses that are too big for UDP (RFC 7766). Right now everything goes over UDP.
 - **Thread Pool**: Offload DNS resolution to worker threads so the main event loop doesn't block.
